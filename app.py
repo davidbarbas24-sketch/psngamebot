@@ -4,77 +4,137 @@ import os
 
 app = Flask(__name__)
 
-# טוקן הבוט וצ'אט של המנהל
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 OWNER_CHAT_ID = os.environ.get("OWNER_CHAT_ID")
-TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
+API_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 
-# מילון שאלות ותשובות
-qna = {
-    "מה זה משחק פלייסטיישן שמגיע כחשבון/פרופיל": "משתמש טעון בחבילה או המשחק שבחרתם. שחקו מהפרופיל הפרטי שלכם. הרוויחו גביעים, שחקו ברשת, קבלו עדכונים...",
-    "איך מתקינים משחק פלייסטיישן 4/5 מתוך חשבון": "להסבר על התקנת המשחקים אנא כנסו ללשונית מדריכים באתר PSNGAME.COM, שם תמצאו מדריכי התקנה ל-2 הקונסולות.",
-    "האם יש לי אחריות על תקינות החשבון": "יש אחריות מלאה לתקינות החשבון. אין לשנות את פרטי הכניסה (דוא\"ל+סיסמה) של חשבון PSN.",
-    "לא קיבלתי את חשבון לאחר הרכישה": "משלוח של חשבון יכול לקחת עד 24 שעות, לפעמים עד 72 שעות במייל הפרטי. בדקו ספאם. אם לא קיבלתם - פנו לצוות התמיכה.",
-    "כיצד ניתן לשלם": "✅ ביט, ✅ העברה בנקאית, ✅ PayPal, ✅ BTC, ✅ שליח עד הבית (תוספת תשלום).",
-    "האם אפשר לשלוח מישהו שיעזור לי להתקין את המשחקים": "ניתן לתאם התקנה אישית ללקוח, כולל תשלום נוסף."
-}
-
-# פונקציה לשליחת הודעות לטלגרם
 def send_message(chat_id, text):
     requests.post(
-        f"{TELEGRAM_API}/sendMessage",
-        json={"chat_id": chat_id, "text": text}
+        f"{API_URL}/sendMessage",
+        json={"chat_id": chat_id, "text": text, "disable_web_page_preview": True}
     )
 
-# Webhook לטלגרם
+# ===== נושאים + מילות מפתח =====
+TOPICS = [
+    {
+        "keywords": ["מה זה", "חשבון", "פרופיל", "איך זה עובד", "account"],
+        "answer": (
+            "🎮 *משחק דיגיטלי כחשבון / פרופיל*\n\n"
+            "אתם מקבלים חשבון PSN עם המשחק או החבילה שרכשתם.\n"
+            "✔ משחקים מהחשבון הפרטי שלכם\n"
+            "✔ גביעים, אונליין ועדכונים כרגיל\n\n"
+            "⚠️ אין לשנות אימייל או סיסמה של החשבון.\n"
+            "כל עוד הפרטים נשמרים – אתם מכוסים באחריות מלאה."
+        )
+    },
+    {
+        "keywords": ["התקנה", "איך מתקינים", "להתקין", "download"],
+        "answer": (
+            "📥 *התקנת משחקים PS4 / PS5*\n\n"
+            "לאחר קבלת הפרטים במייל:\n"
+            "1️⃣ מוסיפים משתמש חדש בקונסולה\n"
+            "2️⃣ נכנסים עם הפרטים שקיבלתם\n"
+            "3️⃣ מורידים את המשחק מהספריה\n"
+            "4️⃣ חוזרים למשתמש הפרטי ומשחקים 🎮\n\n"
+            "📘 מדריכים מלאים לפי קונסולה זמינים באתר."
+        )
+    },
+    {
+        "keywords": ["אחריות", "בעיה", "לא עובד", "תקלה"],
+        "answer": (
+            "🛡️ *אחריות ותקלות*\n\n"
+            "יש אחריות מלאה על תקינות החשבון.\n"
+            "❗ שינוי אימייל / סיסמה מבטל אחריות.\n\n"
+            "במקרה של תקלה:\n"
+            "• כיבוי והדלקה של הקונסולה\n"
+            "• בדיקת אינטרנט\n"
+            "• Restore Licenses\n\n"
+            "אם לא הסתדר – נציג יעזור."
+        )
+    },
+    {
+        "keywords": ["לא קיבלתי", "לא הגיע", "אימייל", "משלוח"],
+        "answer": (
+            "📧 *לא קיבלתם את החשבון?*\n\n"
+            "זמן אספקה רגיל: עד 24 שעות\n"
+            "בעומסים: עד 72 שעות\n\n"
+            "בדקו:\n"
+            "• ספאם / קידומי מכירות\n\n"
+            "לא מצאתם? צוות התמיכה כאן בשבילכם."
+        )
+    },
+    {
+        "keywords": ["תשלום", "איך משלמים", "מחיר", "pay"],
+        "answer": (
+            "💳 *אמצעי תשלום*\n\n"
+            "✅ ביט\n"
+            "✅ העברה בנקאית\n"
+            "✅ PayPal\n"
+            "✅ BTC\n"
+            "✅ שליח עד הבית (בתוספת תשלום)"
+        )
+    },
+    {
+        "keywords": ["התקנה אישית", "מישהו שיתקין", "לא מבין", "עזרה בהתקנה"],
+        "answer": (
+            "👨‍🔧 *התקנה אישית*\n\n"
+            "למי שמעדיף שלא להתעסק:\n"
+            "איסוף הקונסולה → התקנה → החזרה עם המשחקים מותקנים.\n"
+            "💰 השירות בתשלום נוסף."
+        )
+    }
+]
+
+TRIGGER_WORDS = [
+    "לקנות", "רכישה", "להזמין", "מחיר",
+    "buy", "order", "purchase"
+]
+
+WELCOME_MESSAGE = (
+    "שלום 👋\n"
+    "ברוכים הבאים ל־PSNGAME 🎮\n\n"
+    "אני כאן כדי לעזור עם:\n"
+    "• הסבר איך זה עובד\n"
+    "• התקנה PS4 / PS5\n"
+    "• אחריות ותקלות\n"
+    "• אמצעי תשלום\n\n"
+    "כשתרצו לרכוש – אני מחבר לנציג.\n\n"
+    "🌐 https://psngame.com"
+)
+
 @app.route("/", methods=["POST"])
 def webhook():
     data = request.json
     if not data or "message" not in data:
         return "ok"
 
-    message = data["message"]
-    chat_id = message["chat"]["id"]
-    text = message.get("text", "").lower()
+    msg = data["message"]
+    chat_id = msg["chat"]["id"]
+    text = msg.get("text", "").lower()
 
-    # מילת טריגר לפנייה אל מנהל
-    trigger_words = ["לקנות", "להזמין", "רכישה", "buy", "order"]
-    
-    if any(word in text for word in trigger_words):
-        summary = (
-            "📥 פנייה חדשה\n"
-            f"👤 משתמש: @{message['from'].get('username')}\n"
-            f"💬 הודעה: {text}"
+    # מעבר לנציג
+    if any(word in text for word in TRIGGER_WORDS):
+        send_message(
+            OWNER_CHAT_ID,
+            f"📥 פנייה חדשה\n👤 @{msg['from'].get('username')}\n💬 {text}"
         )
-        send_message(OWNER_CHAT_ID, summary)
-        send_message(chat_id, "מעביר אותך לנציג, הוא ימשיך איתך עכשיו 👤")
+        send_message(chat_id, "מעביר אותך לנציג מכירות 👤")
         return "ok"
 
-    # בדיקה במילון שאלות ותשובות
-    for question, answer in qna.items():
-        if question.lower() in text:
-            send_message(chat_id, answer)
+    # חיפוש לפי מילות מפתח
+    for topic in TOPICS:
+        if any(k in text for k in topic["keywords"]):
+            send_message(chat_id, topic["answer"] + "\n\n🌐 https://psngame.com")
             return "ok"
 
-    # הודעה פתיחה למי שלא מזוהה
-    reply = (
-        "שלום 👋\n"
-        "ברוכים הבאים ל-PSNGAME!\n\n"
-        "אפשר לשאול אותי על:\n"
-        "🎮 משחקים\n"
-        "🔥 מבצעים וחבילות\n"
-        "❓ עזרה בתקלות\n\n"
-        "כשתרצה להזמין – אני מחבר אותך לנציג."
-    )
-    send_message(chat_id, reply)
+    # ברירת מחדל
+    send_message(chat_id, WELCOME_MESSAGE)
     return "ok"
 
-# בדיקה ב־GET
 @app.route("/", methods=["GET"])
 def index():
     return "Bot is running"
 
-# הפעלה נכונה ל־Render
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
