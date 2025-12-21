@@ -1,107 +1,85 @@
 from flask import Flask, request
-import requests
-import os
-import re
+import requests, os, re
 
 app = Flask(__name__)
 
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+TOKEN = os.environ.get("TELEGRAM_TOKEN")
 OWNER_CHAT_ID = os.environ.get("OWNER_CHAT_ID")
-API_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
+API_URL = f"https://api.telegram.org/bot{TOKEN}"
 
-def send_message(chat_id, text):
+# זיכרון זמני למשתמשים
+user_state = {}
+
+def send(chat_id, text):
     requests.post(
         f"{API_URL}/sendMessage",
-        json={
-            "chat_id": chat_id,
-            "text": text,
-            "disable_web_page_preview": True
-        }
+        json={"chat_id": chat_id, "text": text}
     )
 
-# ===== נושאים + מילות מפתח =====
-TOPICS = [
-    {
-        "keywords": ["מה זה", "חשבון", "פרופיל", "איך זה עובד", "account"],
-        "answer": (
-            "🎮 משחק דיגיטלי כחשבון / פרופיל\n\n"
-            "אתם מקבלים חשבון PSN עם המשחק או החבילה שרכשתם.\n"
-            "✔ משחקים מהחשבון הפרטי שלכם\n"
-            "✔ גביעים, אונליין ועדכונים כרגיל\n\n"
-            "⚠️ אין לשנות אימייל או סיסמה.\n"
-            "כל עוד הפרטים נשמרים – אתם מכוסים באחריות מלאה."
-        )
-    },
-    {
-        "keywords": ["התקנה", "מתקין", "להתקין", "download"],
-        "answer": (
-            "📥 התקנת משחקים PS4 / PS5\n\n"
-            "1️⃣ מוסיפים משתמש חדש בקונסולה\n"
-            "2️⃣ נכנסים עם הפרטים שקיבלתם במייל\n"
-            "3️⃣ מורידים את המשחק מהספריה\n"
-            "4️⃣ חוזרים למשתמש הפרטי ומשחקים 🎮\n\n"
-            "מדריכים מלאים לפי קונסולה זמינים באתר."
-        )
-    },
-    {
-        "keywords": ["אחריות", "בעיה", "לא עובד", "תקלה"],
-        "answer": (
-            "🛡️ אחריות ותקלות\n\n"
-            "יש אחריות מלאה על תקינות החשבון.\n"
-            "❗ שינוי אימייל או סיסמה מבטל אחריות.\n\n"
-            "לפני פנייה:\n"
-            "• כיבוי והדלקה של הקונסולה\n"
-            "• בדיקת אינטרנט\n"
-            "• Restore Licenses"
-        )
-    },
-    {
-        "keywords": ["לא קיבלתי", "לא הגיע", "אימייל", "משלוח"],
-        "answer": (
-            "📧 לא קיבלתם את החשבון?\n\n"
-            "אספקה רגילה: עד 24 שעות\n"
-            "בעומסים: עד 72 שעות\n\n"
-            "בדקו ספאם / קידומי מכירות.\n"
-            "אם עדיין לא הגיע – צוות התמיכה כאן."
-        )
-    },
-    {
-        "keywords": ["תשלום", "איך משלמים", "מחיר", "pay"],
-        "answer": (
-            "💳 אמצעי תשלום\n\n"
-            "✅ ביט\n"
-            "✅ העברה בנקאית\n"
-            "✅ PayPal\n"
-            "✅ BTC\n"
-            "✅ שליח עד הבית (בתוספת תשלום)"
-        )
-    },
-    {
-        "keywords": ["התקנה אישית", "מישהו שיתקין", "עזרה בהתקנה"],
-        "answer": (
-            "👨‍🔧 התקנה אישית ללקוח\n\n"
-            "איסוף הקונסולה → התקנה → החזרה עם המשחקים מותקנים.\n"
-            "השירות בתשלום נוסף."
-        )
-    }
-]
-
-TRIGGER_WORDS = [
-    "לקנות", "רכישה", "להזמין", "קנייה",
-    "buy", "order", "purchase"
-]
-
-WELCOME_MESSAGE = (
+WELCOME = (
     "שלום 👋\n"
     "ברוכים הבאים ל־PSNGAME 🎮\n\n"
-    "אפשר לשאול אותי על:\n"
+    "אפשר לעזור ב:\n"
     "• איך זה עובד\n"
     "• התקנה PS4 / PS5\n"
-    "• אחריות ותקלות\n"
-    "• אמצעי תשלום\n\n"
-    "כשתרצו לרכוש – אני מחבר לנציג.\n\n"
-    "🌐 https://psngame.com"
+    "• תקלות ועזרה\n"
+    "• תשלום והזמנה\n\n"
+    "פשוט כתבו מה אתם צריכים 🙂"
 )
+
+ASK_ISSUE_TYPE = (
+    "אשמח לעזור 👌\n"
+    "איזו תקלה יש לך?\n\n"
+    "אפשר לכתוב למשל:\n"
+    "• המשחק לא עובד\n"
+    "• המשחק ננעל\n"
+    "• מבקש רישיון\n"
+    "• בעיית התקנה"
+)
+
+ASK_CONSOLE = (
+    "על איזו קונסולה מדובר?\n"
+    "כתוב:\n"
+    "• PS4\n"
+    "• PS5"
+)
+
+FIX_RESTORE = (
+    "🛠️ פתרון – Restore Licenses\n\n"
+    "1️⃣ היכנס להגדרות\n"
+    "2️⃣ Account Management\n"
+    "3️⃣ Restore Licenses\n"
+    "4️⃣ אשר וחכה לסיום\n\n"
+    "לאחר מכן הפעל מחדש את הקונסולה."
+)
+
+FIX_PS4_PRIMARY = (
+    "🔓 הפעלת Primary PS4\n\n"
+    "1️⃣ היכנס לחשבון שקיבלת\n"
+    "2️⃣ Settings → Account Management\n"
+    "3️⃣ Activate as your Primary PS4\n"
+    "4️⃣ Activate\n"
+    "5️⃣ Restore Licenses\n\n"
+    "לאחר מכן חזור למשתמש הראשי."
+)
+
+FIX_PS5_PRIMARY = (
+    "🔓 הפעלת Console Sharing – PS5\n\n"
+    "1️⃣ Settings → Users and Accounts\n"
+    "2️⃣ Other → Console Sharing\n"
+    "3️⃣ Enable\n\n"
+    "כבה והדלק את הקונסולה בסיום."
+)
+
+HOW_TO_ORDER = (
+    "🛒 איך מזמינים?\n\n"
+    "אפשר להזמין עצמאית באתר:\n"
+    "https://psngame.com\n\n"
+    "או אם תרצו נציג שילווה אתכם – כתבו:\n"
+    "רוצה נציג"
+)
+
+BUY_TRIGGER = ["רוצה נציג", "דבר עם נציג", "אני רוצה לקנות"]
 
 @app.route("/", methods=["POST"])
 def webhook():
@@ -111,27 +89,49 @@ def webhook():
 
     msg = data["message"]
     chat_id = msg["chat"]["id"]
-
-    raw_text = msg.get("text", "")
-    text = re.sub(r"[^\w\s]", "", raw_text.lower())
+    raw = msg.get("text", "")
+    text = re.sub(r"[^\w\s]", "", raw.lower())
 
     # מעבר לנציג
-    if any(word in text for word in TRIGGER_WORDS):
-        send_message(
-            OWNER_CHAT_ID,
-            f"📥 פנייה חדשה\n👤 @{msg['from'].get('username')}\n💬 {raw_text}"
-        )
-        send_message(chat_id, "מעביר אותך לנציג מכירות 👤")
+    if any(x in text for x in BUY_TRIGGER):
+        send(OWNER_CHAT_ID, f"📥 לקוח צריך נציג\n👤 @{msg['from'].get('username')}\n💬 {raw}")
+        send(chat_id, "מעביר אותך לנציג 👤")
+        user_state.pop(chat_id, None)
         return "ok"
 
-    # תשובות לפי נושא
-    for topic in TOPICS:
-        if any(k in text for k in topic["keywords"]):
-            send_message(chat_id, topic["answer"] + "\n\n🌐 https://psngame.com")
-            return "ok"
+    # התחלת תהליך תקלה
+    if "תקלה" in text or "לא עובד" in text or "בעיה" in text:
+        user_state[chat_id] = {"step": "issue_type"}
+        send(chat_id, ASK_ISSUE_TYPE)
+        return "ok"
 
-    # ברירת מחדל
-    send_message(chat_id, WELCOME_MESSAGE)
+    # שלב 1 – סוג תקלה
+    if chat_id in user_state and user_state[chat_id]["step"] == "issue_type":
+        user_state[chat_id]["issue"] = text
+        user_state[chat_id]["step"] = "console"
+        send(chat_id, ASK_CONSOLE)
+        return "ok"
+
+    # שלב 2 – קונסולה
+    if chat_id in user_state and user_state[chat_id]["step"] == "console":
+        issue = user_state[chat_id]["issue"]
+        user_state.pop(chat_id)
+
+        if "ps4" in text:
+            send(chat_id, FIX_RESTORE + "\n\n" + FIX_PS4_PRIMARY)
+        elif "ps5" in text:
+            send(chat_id, FIX_RESTORE + "\n\n" + FIX_PS5_PRIMARY)
+        else:
+            send(chat_id, "לא זיהיתי קונסולה, נסה לכתוב PS4 או PS5")
+
+        send(chat_id, "\nאם זה לא פתר את הבעיה – כתבו: רוצה נציג")
+        return "ok"
+
+    if "איך מזמינים" in text or "הזמנה" in text:
+        send(chat_id, HOW_TO_ORDER)
+        return "ok"
+
+    send(chat_id, WELCOME)
     return "ok"
 
 @app.route("/", methods=["GET"])
@@ -139,5 +139,4 @@ def index():
     return "Bot is running"
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
