@@ -1,5 +1,5 @@
 from flask import Flask, request
-import requests, os, re
+import requests, os
 
 app = Flask(__name__)
 
@@ -7,15 +7,42 @@ TOKEN = os.environ.get("TELEGRAM_TOKEN")
 OWNER_CHAT_ID = os.environ.get("OWNER_CHAT_ID")
 API_URL = f"https://api.telegram.org/bot{TOKEN}"
 
+# WooCommerce API
+WC_URL = os.environ.get("WC_URL")  # https://psngame.com/wp-json/wc/v3/
+WC_KEY = os.environ.get("WC_KEY")  # Consumer Key
+WC_SECRET = os.environ.get("WC_SECRET")  # Consumer Secret
+
 # זיכרון זמני למשתמשים
 user_state = {}
 
+# פונקציה לשליחת הודעה
 def send(chat_id, text):
     requests.post(
         f"{API_URL}/sendMessage",
         json={"chat_id": chat_id, "text": text}
     )
 
+# פונקציה להבאת מחירים ממוצרי WooCommerce
+def get_prices():
+    try:
+        r = requests.get(
+            f"{WC_URL}products",
+            auth=(WC_KEY, WC_SECRET),
+            timeout=5
+        )
+        data = r.json()
+        # יוצרים הודעה מסודרת
+        msg = "💰 מחירים:\n\n"
+        for product in data:
+            name = product.get("name")
+            price = product.get("price")
+            msg += f"{name}: {price}₪\n"
+        return msg
+    except Exception as e:
+        print("Error fetching WC API:", e)
+        return "⚠️ לא הצלחתי להביא מחירים כרגע"
+
+# הודעות סטטיות
 WELCOME = (
     "שלום 👋\n"
     "ברוכים הבאים ל־PSNGAME 🎮\n\n"
@@ -80,6 +107,7 @@ HOW_TO_ORDER = (
 )
 
 BUY_TRIGGER = ["רוצה נציג", "דבר עם נציג", "אני רוצה לקנות"]
+PRICE_TRIGGER = ["מחיר", "כמה עולה", "עלות"]
 
 @app.route("/", methods=["POST"])
 def webhook():
@@ -89,14 +117,25 @@ def webhook():
 
     msg = data["message"]
     chat_id = msg["chat"]["id"]
-    raw = msg.get("text", "")
-    text = re.sub(r"[^\w\s]", "", raw.lower())
+
+    # רק אם יש טקסט
+    if "text" not in msg:
+        return "ok"
+
+    raw = msg["text"]
+    text = raw.lower().strip()
 
     # מעבר לנציג
     if any(x in text for x in BUY_TRIGGER):
         send(OWNER_CHAT_ID, f"📥 לקוח צריך נציג\n👤 @{msg['from'].get('username')}\n💬 {raw}")
         send(chat_id, "מעביר אותך לנציג 👤")
         user_state.pop(chat_id, None)
+        return "ok"
+
+    # שאילתות מחירים
+    if any(x in text for x in PRICE_TRIGGER):
+        prices_msg = get_prices()
+        send(chat_id, prices_msg)
         return "ok"
 
     # התחלת תהליך תקלה
