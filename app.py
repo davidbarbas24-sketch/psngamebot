@@ -1,113 +1,55 @@
 from flask import Flask, request
-import requests, os
+import requests, os, re
 
 app = Flask(__name__)
 
+# Telegram
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 OWNER_CHAT_ID = os.environ.get("OWNER_CHAT_ID")
 API_URL = f"https://api.telegram.org/bot{TOKEN}"
 
-# WooCommerce API
-WC_URL = os.environ.get("WC_URL")  # https://psngame.com/wp-json/wc/v3/
-WC_KEY = os.environ.get("WC_KEY")  # Consumer Key
-WC_SECRET = os.environ.get("WC_SECRET")  # Consumer Secret
+# WooCommerce
+WC_URL = os.environ.get("WC_URL")
+WC_KEY = os.environ.get("WC_KEY")
+WC_SECRET = os.environ.get("WC_SECRET")
 
 # זיכרון זמני למשתמשים
 user_state = {}
 
-# פונקציה לשליחת הודעה
 def send(chat_id, text):
     requests.post(
         f"{API_URL}/sendMessage",
         json={"chat_id": chat_id, "text": text}
     )
 
-# פונקציה להבאת מחירים ממוצרי WooCommerce
+# הודעות קבועות
+WELCOME = "שלום 👋\nברוכים הבאים ל־PSNGAME 🎮\n..."
+ASK_ISSUE_TYPE = "אשמח לעזור 👌\nאיזו תקלה יש לך?\n..."
+ASK_CONSOLE = "על איזו קונסולה מדובר?\n..."
+FIX_RESTORE = "🛠️ פתרון – Restore Licenses\n..."
+FIX_PS4_PRIMARY = "🔓 הפעלת Primary PS4\n..."
+FIX_PS5_PRIMARY = "🔓 הפעלת Console Sharing – PS5\n..."
+HOW_TO_ORDER = "🛒 איך מזמינים?\n..."
+
+BUY_TRIGGER = ["רוצה נציג", "דבר עם נציג", "אני רוצה לקנות"]
+
+# פונקציה להבאת מחירים מהאתר
 def get_prices():
     try:
-        r = requests.get(
-            f"{WC_URL}products",
-            auth=(WC_KEY, WC_SECRET),
-            timeout=5
-        )
+        r = requests.get(f"{WC_URL}products", auth=(WC_KEY, WC_SECRET), timeout=5)
+        r.raise_for_status()
         data = r.json()
-        # יוצרים הודעה מסודרת
+        if not data:
+            return "⚠️ לא נמצאו מוצרים באתר"
         msg = "💰 מחירים:\n\n"
         for product in data:
-            name = product.get("name")
-            price = product.get("price")
+            name = product.get("name", "לא ידוע")
+            price = product.get("price", "לא זמין")
             msg += f"{name}: {price}₪\n"
         return msg
     except Exception as e:
-        print("Error fetching WC API:", e)
-        return "⚠️ לא הצלחתי להביא מחירים כרגע"
-
-# הודעות סטטיות
-WELCOME = (
-    "שלום 👋\n"
-    "ברוכים הבאים ל־PSNGAME 🎮\n\n"
-    "אפשר לעזור ב:\n"
-    "• איך זה עובד\n"
-    "• התקנה PS4 / PS5\n"
-    "• תקלות ועזרה\n"
-    "• תשלום והזמנה\n\n"
-    "פשוט כתבו מה אתם צריכים 🙂"
-)
-
-ASK_ISSUE_TYPE = (
-    "אשמח לעזור 👌\n"
-    "איזו תקלה יש לך?\n\n"
-    "אפשר לכתוב למשל:\n"
-    "• המשחק לא עובד\n"
-    "• המשחק ננעל\n"
-    "• מבקש רישיון\n"
-    "• בעיית התקנה"
-)
-
-ASK_CONSOLE = (
-    "על איזו קונסולה מדובר?\n"
-    "כתוב:\n"
-    "• PS4\n"
-    "• PS5"
-)
-
-FIX_RESTORE = (
-    "🛠️ פתרון – Restore Licenses\n\n"
-    "1️⃣ היכנס להגדרות\n"
-    "2️⃣ Account Management\n"
-    "3️⃣ Restore Licenses\n"
-    "4️⃣ אשר וחכה לסיום\n\n"
-    "לאחר מכן הפעל מחדש את הקונסולה."
-)
-
-FIX_PS4_PRIMARY = (
-    "🔓 הפעלת Primary PS4\n\n"
-    "1️⃣ היכנס לחשבון שקיבלת\n"
-    "2️⃣ Settings → Account Management\n"
-    "3️⃣ Activate as your Primary PS4\n"
-    "4️⃣ Activate\n"
-    "5️⃣ Restore Licenses\n\n"
-    "לאחר מכן חזור למשתמש הראשי."
-)
-
-FIX_PS5_PRIMARY = (
-    "🔓 הפעלת Console Sharing – PS5\n\n"
-    "1️⃣ Settings → Users and Accounts\n"
-    "2️⃣ Other → Console Sharing\n"
-    "3️⃣ Enable\n\n"
-    "כבה והדלק את הקונסולה בסיום."
-)
-
-HOW_TO_ORDER = (
-    "🛒 איך מזמינים?\n\n"
-    "אפשר להזמין עצמאית באתר:\n"
-    "https://psngame.com\n\n"
-    "או אם תרצו נציג שילווה אתכם – כתבו:\n"
-    "רוצה נציג"
-)
-
-BUY_TRIGGER = ["רוצה נציג", "דבר עם נציג", "אני רוצה לקנות"]
-PRICE_TRIGGER = ["מחיר", "כמה עולה", "עלות"]
+        print("WC API Error:", e)
+        return f"⚠️ לא הצלחתי להביא מחירים: {e}"
 
 @app.route("/", methods=["POST"])
 def webhook():
@@ -117,25 +59,19 @@ def webhook():
 
     msg = data["message"]
     chat_id = msg["chat"]["id"]
+    raw = msg.get("text", "")
+    text = re.sub(r"[^\w\s]", "", raw.lower())
 
-    # רק אם יש טקסט
-    if "text" not in msg:
-        return "ok"
-
-    raw = msg["text"]
-    text = raw.lower().strip()
-
-    # מעבר לנציג
+    # בדיקה אם הלקוח רוצה נציג
     if any(x in text for x in BUY_TRIGGER):
         send(OWNER_CHAT_ID, f"📥 לקוח צריך נציג\n👤 @{msg['from'].get('username')}\n💬 {raw}")
         send(chat_id, "מעביר אותך לנציג 👤")
         user_state.pop(chat_id, None)
         return "ok"
 
-    # שאילתות מחירים
-    if any(x in text for x in PRICE_TRIGGER):
-        prices_msg = get_prices()
-        send(chat_id, prices_msg)
+    # בדיקה אם המשתמש שואל על מחיר
+    if "מחיר" in text or "כמה עולה" in text:
+        send(chat_id, get_prices())
         return "ok"
 
     # התחלת תהליך תקלה
@@ -178,4 +114,11 @@ def index():
     return "Bot is running"
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    # תיקון PORT
+    port = os.environ.get("PORT")
+    if not port:
+        port = 5000
+    else:
+        port = int(port)
+
+    app.run(host="0.0.0.0", port=port)
